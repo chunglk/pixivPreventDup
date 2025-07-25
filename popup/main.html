@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pixiv Prevent Duplicate</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        background: #f7f7fa;
+        margin: 0;
+        padding: 1rem;
+        color: #222;
+      }
+      .container {
+        max-width: 400px;
+        margin: 1.5rem auto;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+        padding: 1.5rem;
+      }
+      h1 {
+        font-size: 1.5rem;
+        margin-bottom: 1rem;
+        color: #2d8cf0;
+      }
+      p {
+        margin-bottom: 1rem;
+        line-height: 1.5;
+      }
+      #status, #importStatus, #currentPageStatus {
+        margin-bottom: 1rem;
+        padding: 0.5rem;
+        background: #f0f4fa;
+        border-radius: 6px;
+        font-size: 0.95rem;
+      }
+      .button-row {
+        display: flex;
+        gap: 0.75rem;
+        margin-bottom: 0.5rem;
+      }
+      input[type="file"] {
+        display: none;
+      }
+      .import-label, button {
+        background: #2d8cf0;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 0.5rem 1.2rem;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: background 0.2s;
+        display: inline-block;
+      }
+      .import-label:hover, button:hover {
+        background: #1766b8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Pixiv Prevent Duplicate</h1>
+      <p>This Chrome extension prevents downloading duplicate images from Pixiv.</p>
+      <div id="status"></div>
+      <div id="importStatus"></div>
+      <div id="currentPageStatus"></div>
+      <div class="button-row">
+        <label for="csvUpload" class="import-label">
+          Import CSV
+          <input type="file" id="csvUpload" accept=".csv">
+        </label>
+        <button id="resetBtn">Reset</button>
+      </div>
+    </div>
+    <script src="main.js"></script>
+  </body>
+</html>

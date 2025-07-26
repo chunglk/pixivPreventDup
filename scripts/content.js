@@ -102,6 +102,18 @@ chrome.runtime.onMessage.addListener(function(request, _sender, sendResponse) {
             sendResponse({status: 'success'});
         }, 1500); 
         return true;
+    } else if (request.action === 'getBlobUrl') {
+        fetch(request.srcUrl)
+            .then(response => response.blob())
+            .then(blob => {
+                const blobUrl = URL.createObjectURL(blob);
+                sendResponse({url: blobUrl});
+            })
+            .catch(error => {
+                console.error('Error creating blob URL:', error);
+                sendResponse({url: null, error: error.toString()});
+            });
+        return true; 
     }
 });
 

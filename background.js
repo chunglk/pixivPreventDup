@@ -41,6 +41,16 @@ function addListOfValuesToJson(values) {
     });
 }
 
+chrome.contextMenus.create({
+            id: "processImage",
+            title: "Save and Process Image",
+            contexts: ["image"],
+            documentUrlPatterns: ["*://*.pixiv.net/*"]
+        }, () => {
+            if (chrome.runtime.lastError && chrome.runtime.lastError.message.includes('already exists')) {
+                // Ignore duplicate creation error
+            }
+        });
 
 async function getJsonDataLength() {
     const result = await chrome.storage.local.get(['jsonData']);
@@ -85,6 +95,36 @@ chrome.contextMenus.onClicked.addListener((info) => {
         const fileName = info.srcUrl;
         const value = fileName.split('/').pop().trim();
         addToJson(value);
+
+        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+            if (tabs[0] && tabs[0].id) {
+                chrome.tabs.sendMessage(tabs[0].id, {
+                    action: 'getBlobUrl',
+                    srcUrl: info.srcUrl
+                }, function(response) {
+                    if (chrome.runtime.lastError) {
+                        // Handle the case where the content script is not injected
+                        console.error('Error getting blob URL:', chrome.runtime.lastError.message);
+                        alert('Could not process image: Content script not loaded on this page.');
+                        return;
+                    }
+                    console.log('Response from content script:', response);
+                    if (response && response.url) {
+                        const blobUrl = response.url;
+                        console.log('Blob URL:', blobUrl);
+                        chrome.downloads.download({
+                            url: blobUrl,
+                            filename: value,
+                            saveAs: true
+                        })
+                    } else {
+                        console.error('No blob URL returned from content script');
+                    }
+                });
+            }
+        });
+        
+        
     } else {
         console.error('srcUrl is undefined in context menu click event:', info);
     }
@@ -98,16 +138,7 @@ chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
         tab.url.includes('pixiv.net')
     ) {
 
-        chrome.contextMenus.create({
-            id: "processImage",
-            title: "Save and Process Image",
-            contexts: ["image"],
-            documentUrlPatterns: ["*://*.pixiv.net/*"]
-        }, () => {
-            if (chrome.runtime.lastError && chrome.runtime.lastError.message.includes('already exists')) {
-                // Ignore duplicate creation error
-            }
-        });
+        
         console.log('Tab changed to Pixiv:', tabId);
         chrome.tabs.sendMessage(tabId, {action: 'tab_changed', url: tab.url}, function(response) {
             if (chrome.runtime.lastError) {
@@ -128,4 +159,3 @@ chrome.tabs.onActivated.addListener(function(activeInfo) {
         }
     });
 });
-

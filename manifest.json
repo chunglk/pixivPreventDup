@@ -26,12 +26,24 @@
     "activeTab",
     "contextMenus",
     "tabs",
-    "downloads"
+    "downloads", 
+    "declarativeNetRequestWithHostAccess",
+    "scripting",
+    "webRequest"
   ],
   "host_permissions": [
     "*://www.pixiv.net/*",
     "*://www.pixivision.net/*",
     "*://*.pximg.net/*",
     "*://*.pixiv.cat/*"
-  ]
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_1",
+        "enabled": true,
+        "path": "declarative_net_request_rules.json"
+      }
+    ]
+  }
 }

@@ -94,7 +94,7 @@ chrome.contextMenus.onClicked.addListener((info) => {
     if (info.srcUrl) {
         const fileName = info.srcUrl;
         const value = fileName.split('/').pop().trim();
-        addToJson(value);
+        
 
         chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
             if (tabs[0] && tabs[0].id) {
@@ -103,9 +103,7 @@ chrome.contextMenus.onClicked.addListener((info) => {
                     srcUrl: info.srcUrl
                 }, function(response) {
                     if (chrome.runtime.lastError) {
-                        // Handle the case where the content script is not injected
                         console.error('Error getting blob URL:', chrome.runtime.lastError.message);
-                        alert('Could not process image: Content script not loaded on this page.');
                         return;
                     }
                     console.log('Response from content script:', response);
@@ -116,7 +114,7 @@ chrome.contextMenus.onClicked.addListener((info) => {
                             url: blobUrl,
                             filename: value,
                             saveAs: true
-                        })
+                        });
                     } else {
                         console.error('No blob URL returned from content script');
                     }
@@ -130,6 +128,20 @@ chrome.contextMenus.onClicked.addListener((info) => {
     }
 });
 
+chrome.downloads.onChanged.addListener(function(delta) {
+    if (delta.state && delta.state.current === 'complete') {
+        console.log('Download completed:', delta);
+        // delta only has id and state, no filename
+        chrome.downloads.search({id: delta.id}, function(results) {
+            if (results && results.length > 0) {
+                console.log('Download completed with filename:', results[0].filename);
+                const fileName = results[0].filename.split('\\').pop();
+                addToJson(fileName);
+            }
+        });
+    }
+});
+
 chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
     console.log('Tab updated:', tabId, changeInfo, tab);
     if (
@@ -137,8 +149,6 @@ chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
         tab.url &&
         tab.url.includes('pixiv.net')
     ) {
-
-        
         console.log('Tab changed to Pixiv:', tabId);
         chrome.tabs.sendMessage(tabId, {action: 'tab_changed', url: tab.url}, function(response) {
             if (chrome.runtime.lastError) {
@@ -147,8 +157,6 @@ chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
                 console.log('Response from content script:', response);
             }
         });
-
-        
     }
 });
 

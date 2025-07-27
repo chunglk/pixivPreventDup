@@ -96,11 +96,23 @@ chrome.runtime.onMessage.addListener(function(request, _sender, sendResponse) {
     if (request.action === 'tab_changed') {
         pageURL = request.url;
         jsonAnchorCache = {}; 
+        const nav = document.querySelector('nav');
+        if (nav) {
+            console.log('Nav element found, setting up observer...');
+            let timeoutId = null;
+            const observer = new MutationObserver(() => {
+                if (timeoutId) clearTimeout(timeoutId);
+                timeoutId = setTimeout(() => {
+                    checkAnchorsAndShowMessage();
+                }, 0); 
+            });
+            observer.observe(nav, { childList: true, subtree: true });
+        }
         setTimeout(() => {
             console.log('Tab changed, checking anchors...');
             checkAnchorsAndShowMessage();
             sendResponse({status: 'success'});
-        }, 1500); 
+        }, 500); 
         return true;
     } else if (request.action === 'getBlobUrl') {
         fetch(request.srcUrl)
@@ -118,18 +130,6 @@ chrome.runtime.onMessage.addListener(function(request, _sender, sendResponse) {
 });
 
 setTimeout(() => {
-    const nav = document.querySelector('nav');
-    if (nav) {
-        console.log('Nav element found, setting up observer...');
-        let timeoutId = null;
-        const observer = new MutationObserver(() => {
-            if (timeoutId) clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => {
-                checkAnchorsAndShowMessage();
-            }, 200); 
-        });
-        observer.observe(nav, { childList: true, subtree: true });
-    }
     window.addEventListener('scroll', () => {
         if (window.scrollTimeout) clearTimeout(window.scrollTimeout);
         window.scrollTimeout = setTimeout(() => {
@@ -141,11 +141,15 @@ setTimeout(() => {
 chrome.storage.onChanged.addListener(function(changes, namespace) {
     if (namespace === 'local' && changes.jsonData) {
         console.log('jsonData changed:', changes.jsonData.newValue);
-        jsonAnchorCache = {}; // Clear cache on jsonData change
+        jsonAnchorCache = {}; 
         getJsonData();
         setTimeout(() => {
             checkAnchorsAndShowMessage();
-        }, 1000); // Delay to allow the new data to be processed
+        }, 1000); 
+       
     }
 });
+
+
+
 

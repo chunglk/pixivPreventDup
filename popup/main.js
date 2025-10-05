@@ -89,8 +89,8 @@ function toggleVisibility(id) {
     toggleVisibility(id);
 });
 
+// Optimized single value addition with deduplication
 function addToJson(inputValue){
-    // Retrieve the existing JSON data from local storage
     chrome.storage.local.get(['jsonData'], function(result) {
         let offset;
         let value;
@@ -107,17 +107,24 @@ function addToJson(inputValue){
         let key = Math.floor(value / Math.pow(10, 7));
         let subValue = value % Math.pow(10, 7);
 
-        // Check if the key already exists in the JSON data
+        // Initialize nested structure if needed
         if (!jsonData[key]) {
             jsonData[key] = {};
         }
 
         if(!jsonData[key][subValue]){
-            jsonData[key][subValue] = {};
-            jsonData[key][subValue]['offset'] = [];
+            jsonData[key][subValue] = {
+                offset: [],
+                downloaded: false
+            };
         }
+        
         jsonData[key][subValue]['downloaded'] = true;
-        jsonData[key][subValue]['offset'].push(offset);
+        
+        // Prevent duplicate offsets
+        if (!jsonData[key][subValue]['offset'].includes(offset)) {
+            jsonData[key][subValue]['offset'].push(offset);
+        }
 
         // Save the updated JSON data back to local storage
         chrome.storage.local.set({jsonData: jsonData}, function() {
@@ -126,39 +133,56 @@ function addToJson(inputValue){
     });
 }
 
+// Optimized batch processing function - same as background.js for consistency
 function addListOfValuesToJson(values) {
+    // Single storage read operation
     chrome.storage.local.get(['jsonData'], function(result) {
         let jsonData = result.jsonData || {};
-        values.forEach((value, idx) => {
+        let processed = 0;
+        
+        // Process all values in memory first
+        values.forEach(value => {
             let offset;
+            let parsedValue;
             if(value.split('_').length > 1){
-            offset = value.split('_')[1];
-            value = value.split('_')[0];
-            }else{
-            offset = -1;
+                offset = value.split('_')[1];
+                parsedValue = value.split('_')[0];
+            } else {
+                offset = -1;
+                parsedValue = value;
             }
-            value = parseInt(value, 10);
-            let key = Math.floor(value / Math.pow(10, 7));
-            let subValue = value % Math.pow(10, 7);
+            parsedValue = parseInt(parsedValue, 10);
+            
+            let key = Math.floor(parsedValue / Math.pow(10, 7));
+            let subValue = parsedValue % Math.pow(10, 7);
 
-            // Check if the key already exists in the JSON data
+            // Initialize nested structure if needed
             if (!jsonData[key]) {
-            jsonData[key] = {};
+                jsonData[key] = {};
             }
-
             if(!jsonData[key][subValue]){
-            jsonData[key][subValue] = {};
-            jsonData[key][subValue]['offset'] = [];
+                jsonData[key][subValue] = {
+                    offset: [],
+                    downloaded: false
+                };
             }
+            
             jsonData[key][subValue]['downloaded'] = true;
-            jsonData[key][subValue]['offset'].push(offset);
-
-            // Show progress in the status div
-            document.getElementById('status').textContent = `Processing ${idx + 1} of ${values.length}...`;
+            if (!jsonData[key][subValue]['offset'].includes(offset)) {
+                jsonData[key][subValue]['offset'].push(offset);
+            }
+            
+            processed++;
+            // Update progress less frequently for better performance
+            if (processed % 100 === 0 || processed === values.length) {
+                document.getElementById('status').textContent = `Processing ${processed} of ${values.length}...`;
+            }
         });
-        // Save the updated JSON data back to local storage
+
+        // Single storage write operation
         chrome.storage.local.set({jsonData: jsonData}, function() {
-            console.log('Values added to JSON:', values);
+            console.log('Batch values added to JSON:', values.length, 'items');
+            document.getElementById('status').textContent = `Successfully imported ${values.length} items!`;
         });
     });
 }

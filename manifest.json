@@ -13,6 +13,7 @@
         "https://www.pixiv.net/*"
       ],
       "js": [
+        "utils/storage.js",
         "scripts/content.js"
       ]
     }

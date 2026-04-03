@@ -88,6 +88,9 @@ function addListOfValuesToJson(values) {
     });
 }
 
+// Track in-progress downloads initiated by this extension (id → bare basename)
+const pendingDownloads = {};
+
 chrome.contextMenus.create({
             id: "processImage",
             title: "Save and Process Image",
@@ -161,6 +164,10 @@ chrome.contextMenus.onClicked.addListener((info) => {
                             url: blobUrl,
                             filename: value,
                             saveAs: true
+                        }, function(downloadId) {
+                            if (downloadId !== undefined) {
+                                pendingDownloads[downloadId] = value;
+                            }
                         });
                     } else {
                         console.error('No blob URL returned from content script');
@@ -175,14 +182,55 @@ chrome.contextMenus.onClicked.addListener((info) => {
     }
 });
 
+// Before the save dialog opens, suggest the last-used directory as the default location
+chrome.downloads.onDeterminingFilename.addListener(function(item, suggest) {
+    if (!(item.id in pendingDownloads)) {
+        return; // Not our download — use Chrome's default behaviour
+    }
+    const basename = pendingDownloads[item.id];
+
+    // item.filename is Chrome's tentative absolute path (basename inside Chrome's download dir)
+    // e.g. "C:\Users\user\Downloads\image.jpg"  →  base = "C:\Users\user\Downloads\"
+    const tentativePath = item.filename;
+    const lastSep = Math.max(tentativePath.lastIndexOf('\\'), tentativePath.lastIndexOf('/'));
+    const detectedBase = tentativePath.substring(0, lastSep + 1);
+
+    chrome.storage.local.get(['lastDownloadDirectory'], function(result) {
+        const lastDir = result.lastDownloadDirectory;
+        let suggestedFilename = basename;
+
+        if (lastDir && lastDir.startsWith(detectedBase)) {
+            // Convert the stored absolute subdir into a relative path Chrome can use
+            const relDir = lastDir.slice(detectedBase.length).replace(/\\/g, '/');
+            if (relDir) {
+                suggestedFilename = relDir + basename;
+            }
+        }
+
+        suggest({ filename: suggestedFilename });
+    });
+
+    return true; // Indicate that suggest() will be called asynchronously
+});
+
 chrome.downloads.onChanged.addListener(function(delta) {
     if (delta.state && delta.state.current === 'complete') {
         console.log('Download completed:', delta);
         // delta only has id and state, no filename
         chrome.downloads.search({id: delta.id}, function(results) {
             if (results && results.length > 0) {
-                console.log('Download completed with filename:', results[0].filename);
-                const fileName = results[0].filename.split('\\').pop();
+                const fullPath = results[0].filename;
+                console.log('Download completed with filename:', fullPath);
+                const lastSep = Math.max(fullPath.lastIndexOf('\\'), fullPath.lastIndexOf('/'));
+                const absoluteDir = fullPath.substring(0, lastSep + 1);
+                const fileName = fullPath.substring(lastSep + 1);
+
+                // Persist the directory so the next download can default to it
+                if (delta.id in pendingDownloads) {
+                    chrome.storage.local.set({ lastDownloadDirectory: absoluteDir });
+                    delete pendingDownloads[delta.id];
+                }
+
                 addToJson(fileName);
             }
         });

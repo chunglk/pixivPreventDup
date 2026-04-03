@@ -88,8 +88,11 @@ function addListOfValuesToJson(values) {
     });
 }
 
-// Track in-progress downloads initiated by this extension (id → bare basename)
+// Track completed downloads (id → basename) for the onChanged handler
 const pendingDownloads = {};
+// FIFO queue of basenames pushed BEFORE downloads.download() is called,
+// consumed by onDeterminingFilename which fires before the download callback
+const pendingDownloadFilenames = [];
 
 chrome.contextMenus.create({
             id: "processImage",
@@ -160,6 +163,9 @@ chrome.contextMenus.onClicked.addListener((info) => {
                     if (response && response.url) {
                         const blobUrl = response.url;
                         console.log('Blob URL:', blobUrl);
+                        // Push BEFORE calling downloads.download() so the queue entry
+                        // is ready when onDeterminingFilename fires (before the callback)
+                        pendingDownloadFilenames.push(value);
                         chrome.downloads.download({
                             url: blobUrl,
                             filename: value,
@@ -184,10 +190,13 @@ chrome.contextMenus.onClicked.addListener((info) => {
 
 // Before the save dialog opens, suggest the last-used directory as the default location
 chrome.downloads.onDeterminingFilename.addListener(function(item, suggest) {
-    if (!(item.id in pendingDownloads)) {
-        return; // Not our download — use Chrome's default behaviour
+    // Only handle blob URLs from pixiv (our downloads);
+    // also guard against an empty queue in case of unrelated blob downloads
+    if (!item.url.startsWith('blob:') || pendingDownloadFilenames.length === 0) {
+        return; // Not our download — let Chrome use its default behaviour
     }
-    const basename = pendingDownloads[item.id];
+    // Consume the queued basename (FIFO matches the download order)
+    const basename = pendingDownloadFilenames.shift();
 
     // item.filename is Chrome's tentative absolute path (basename inside Chrome's download dir)
     // e.g. "C:\Users\user\Downloads\image.jpg"  →  base = "C:\Users\user\Downloads\"

@@ -4,6 +4,15 @@ let pageURL = '';
 let isProcessing = false; // Prevent concurrent executions
 let lastProcessTime = 0; // Throttling timestamp
 
+// Maps blob: URLs (created by Pixiv's React app) to the original CDN URL they were fetched from.
+// Populated by messages sent from the main-world tracking script injected by background.js.
+const blobUrlToSourceUrl = {};
+window.addEventListener('message', function(event) {
+    if (event.source === window && event.data && event.data.__pixivExtBlob) {
+        blobUrlToSourceUrl[event.data.blobUrl] = event.data.sourceUrl;
+    }
+});
+
 // Optimized JSON data retrieval with caching
 function getJsonData(){
     return chrome.storage.local.get(['jsonData'])
@@ -75,13 +84,28 @@ function checkAnchorsAndShowMessage() {
                 const slug = anchor.getAttribute('data-gtm-value');
                 if (!slug) continue;
 
-                function showDownloadedMessage(target) {
+                // Read the total image count from the multi-image badge (the stacked-pages icon).
+                // The badge SVG has a unique viewBox "0 0 9 10"; its sibling span holds the number.
+                function getTotalImageCount() {
+                    const svgEl = anchor.querySelector('svg[viewBox="0 0 9 10"]');
+                    if (!svgEl) return 1;
+                    // svg → span(wrapper) → span(icon) → div(container with count span)
+                    const containerDiv = svgEl.parentElement?.parentElement?.parentElement;
+                    if (!containerDiv) return 1;
+                    const countEl = containerDiv.lastElementChild;
+                    if (!countEl) return 1;
+                    const n = parseInt(countEl.textContent.trim(), 10);
+                    return isNaN(n) ? 1 : n;
+                }
+
+                function showDownloadedMessage(target, offsets, totalCount) {
                     const messageId = 'extension-message' + slug;
-                    if (!target.querySelector('#' + messageId)) {
-                        const message = document.createElement('div');
-                        message.textContent = 'Already downloaded!';
+                    // Reuse existing element so it updates if more images are downloaded later
+                    let message = target.querySelector('#' + messageId);
+                    if (!message) {
+                        message = document.createElement('div');
+                        message.id = messageId;
                         Object.assign(message.style, {
-                            background: 'rgba(255, 0, 0, 0.85)',
                             color: '#fff',
                             fontWeight: 'bold',
                             fontSize: '12px',
@@ -90,18 +114,37 @@ function checkAnchorsAndShowMessage() {
                             marginTop: '4px',
                             pointerEvents: 'none'
                         });
-                        message.id = messageId;
                         target.appendChild(message);
                     }
+
+                    let text, bg;
+                    if (totalCount > 1) {
+                        // Offsets like "p0.jpg" are page-specific; -1 means no page info
+                        const pageOffsets = offsets.filter(o => o !== -1 && o !== '-1');
+                        const downloadedCount = pageOffsets.length > 0 ? pageOffsets.length : offsets.length;
+                        if (downloadedCount >= totalCount) {
+                            text = 'All downloaded!';
+                            bg   = 'rgba(220, 38, 38, 0.88)'; // red — fully done
+                        } else {
+                            text = `${downloadedCount}/${totalCount} downloaded`;
+                            bg   = 'rgba(217, 119, 6, 0.92)'; // orange — partial
+                        }
+                    } else {
+                        text = 'Already downloaded!';
+                        bg   = 'rgba(220, 38, 38, 0.88)'; // red
+                    }
+                    message.textContent = text;
+                    message.style.background = bg;
                 }
 
                 function handleDownloaded(response) {
                     if (response && response.length > 0) {
+                        const totalCount = getTotalImageCount();
                         const children = Array.from(anchor.children);
                         if (children.length >= 2) {
-                            showDownloadedMessage(children[1]);
+                            showDownloadedMessage(children[1], response, totalCount);
                         } else {
-                            showDownloadedMessage(anchor);
+                            showDownloadedMessage(anchor, response, totalCount);
                         }
                     }
                 }
@@ -153,11 +196,38 @@ chrome.runtime.onMessage.addListener(function(request, _sender, sendResponse) {
         }, 300); // Reduced delay
         return true;
     } else if (request.action === 'getBlobUrl') {
+        // Look up the original CDN URL from the blob tracker map to recover the real filename
+        const sourceUrl = blobUrlToSourceUrl[request.srcUrl];
+        let filename = sourceUrl ? sourceUrl.split('/').pop() : null;
+
+        // DOM-based fallback for blob: URLs the tracker didn't catch (race condition on first load).
+        // Only applies on artwork detail pages where we know the artwork ID from the URL.
+        if (!filename && request.srcUrl.startsWith('blob:')) {
+            const artworkIdMatch = window.location.pathname.match(/\/artworks\/(\d+)/);
+            if (artworkIdMatch) {
+                const artworkId = artworkIdMatch[1];
+                // Page index = position of this blob img among all blob imgs in document order
+                const blobImgs = Array.from(document.querySelectorAll('img[src^="blob:"]'));
+                const idx = blobImgs.findIndex(img => img.src === request.srcUrl);
+                const pageIndex = idx >= 0 ? idx : 0;
+                // Extension: scan performance resource entries for a pximg.net URL with this artwork ID
+                const entries = performance.getEntriesByType('resource');
+                const pximgEntry = entries.find(
+                    e => (e.name.includes('pximg.net') || e.name.includes('pixiv.cat'))
+                         && e.name.includes(artworkId)
+                );
+                const ext = pximgEntry
+                    ? (pximgEntry.name.match(/\.(jpg|jpeg|png|gif|webp)/i)?.[1] ?? 'jpg')
+                    : 'jpg';
+                filename = `${artworkId}_p${pageIndex}.${ext}`;
+            }
+        }
+
         fetch(request.srcUrl)
             .then(response => response.blob())
             .then(blob => {
                 const blobUrl = URL.createObjectURL(blob);
-                sendResponse({url: blobUrl});
+                sendResponse({url: blobUrl, filename: filename});
             })
             .catch(error => {
                 console.error('Error creating blob URL:', error);

@@ -163,16 +163,20 @@ chrome.contextMenus.onClicked.addListener((info) => {
                     if (response && response.url) {
                         const blobUrl = response.url;
                         console.log('Blob URL:', blobUrl);
+                        // Prefer the original CDN filename resolved by the content script;
+                        // fall back to extracting from srcUrl (works for direct CDN URLs).
+                        const filename = response.filename || value;
+                        console.log('Download filename:', filename);
                         // Push BEFORE calling downloads.download() so the queue entry
                         // is ready when onDeterminingFilename fires (before the callback)
-                        pendingDownloadFilenames.push(value);
+                        pendingDownloadFilenames.push(filename);
                         chrome.downloads.download({
                             url: blobUrl,
-                            filename: value,
+                            filename: filename,
                             saveAs: true
                         }, function(downloadId) {
                             if (downloadId !== undefined) {
-                                pendingDownloads[downloadId] = value;
+                                pendingDownloads[downloadId] = filename;
                             }
                         });
                     } else {
@@ -248,6 +252,52 @@ chrome.downloads.onChanged.addListener(function(delta) {
 
 chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
     console.log('Tab updated:', tabId, changeInfo, tab);
+
+    // Inject the blob URL tracker into the page's MAIN world as early as possible.
+    // The guard flag prevents re-injection on subsequent SPA navigations in the same tab.
+    if (changeInfo.status === 'loading' && tab.url && tab.url.includes('pixiv.net')) {
+        chrome.scripting.executeScript({
+            target: {tabId: tabId},
+            world: 'MAIN',
+            injectImmediately: true,
+            func: function() {
+                if (window.__pixivExtBlobTrackerInstalled) return;
+                window.__pixivExtBlobTrackerInstalled = true;
+
+                const _blobSources = new WeakMap();
+                const _originalFetch = window.fetch;
+
+                window.fetch = async function(...args) {
+                    const url = typeof args[0] === 'string' ? args[0]
+                        : (args[0] instanceof Request ? args[0].url : null);
+                    const response = await _originalFetch.apply(this, args);
+                    if (url && (url.includes('pximg.net') || url.includes('pixiv.cat'))) {
+                        const _origBlob = response.blob.bind(response);
+                        response.blob = async function() {
+                            const blob = await _origBlob();
+                            _blobSources.set(blob, url);
+                            return blob;
+                        };
+                    }
+                    return response;
+                };
+
+                const _originalCreateObjectURL = URL.createObjectURL;
+                URL.createObjectURL = function(obj) {
+                    const blobUrl = _originalCreateObjectURL.call(URL, obj);
+                    const sourceUrl = _blobSources.get(obj);
+                    if (sourceUrl) {
+                        window.postMessage(
+                            {__pixivExtBlob: true, blobUrl, sourceUrl},
+                            '*'
+                        );
+                    }
+                    return blobUrl;
+                };
+            }
+        }).catch(() => {});
+    }
+
     if (
         changeInfo.status === 'complete' &&
         tab.url &&

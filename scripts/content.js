@@ -117,20 +117,26 @@ function checkAnchorsAndShowMessage() {
                         target.appendChild(message);
                     }
 
+                    // Deduplicate and strip file extensions for display (e.g. "p0.jpg" → "p0")
+                    const pageOffsets = [...new Set(
+                        offsets.filter(o => o !== -1 && o !== '-1')
+                    )];
+                    const pageLabels = pageOffsets.map(o => String(o).replace(/\.[^.]+$/, ''));
+
                     let text, bg;
                     if (totalCount > 1) {
-                        // Offsets like "p0.jpg" are page-specific; -1 means no page info
-                        const pageOffsets = offsets.filter(o => o !== -1 && o !== '-1');
-                        const downloadedCount = pageOffsets.length > 0 ? pageOffsets.length : offsets.length;
-                        if (downloadedCount >= totalCount) {
-                            text = 'All downloaded!';
+                        const distinctCount = pageOffsets.length > 0 ? pageOffsets.length : new Set(offsets).size;
+                        const labelPart = pageLabels.length > 0 ? ` (${pageLabels.join(', ')})` : '';
+                        if (distinctCount >= totalCount) {
+                            text = `All downloaded!`;
                             bg   = 'rgba(220, 38, 38, 0.88)'; // red — fully done
                         } else {
-                            text = `${downloadedCount}/${totalCount} downloaded`;
+                            text = `${distinctCount}/${totalCount} downloaded${labelPart}`;
                             bg   = 'rgba(217, 119, 6, 0.92)'; // orange — partial
                         }
                     } else {
-                        text = 'Already downloaded!';
+                        const labelPart = pageLabels.length > 0 ? ` (${pageLabels.join(', ')})` : '';
+                        text = `Already downloaded!`;
                         bg   = 'rgba(220, 38, 38, 0.88)'; // red
                     }
                     message.textContent = text;

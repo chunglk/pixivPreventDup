@@ -5,76 +5,255 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pixiv Prevent Duplicate</title>
     <style>
+      *, *::before, *::after { box-sizing: border-box; }
       body {
-        font-family: system-ui, sans-serif;
-        background: #f7f7fa;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #f0f2f5;
         margin: 0;
-        padding: 1rem;
+        padding: 12px;
         color: #222;
+        min-width: 340px;
       }
       .container {
-        max-width: 400px;
-        margin: 1.5rem auto;
         background: #fff;
         border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-        padding: 1.5rem;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
       }
       h1 {
-        font-size: 1.5rem;
-        margin-bottom: 1rem;
-        color: #2d8cf0;
+        font-size: 1.15rem;
+        margin: 0 0 2px;
+        color: #0078d4;
+        letter-spacing: -0.3px;
       }
-      p {
-        margin-bottom: 1rem;
-        line-height: 1.5;
+      .subtitle {
+        font-size: 0.78rem;
+        color: #888;
+        margin: 0;
       }
-      #status, #importStatus, #currentPageStatus {
-        margin-bottom: 1rem;
-        padding: 0.5rem;
-        background: #f0f4fa;
-        border-radius: 6px;
-        font-size: 0.95rem;
+
+      /* ── Status cards ── */
+      .card {
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 0.88rem;
+        display: none; /* hidden until content is set */
       }
-      .button-row {
-        display: flex;
-        gap: 0.75rem;
-        margin-bottom: 0.5rem;
-      }
-      input[type="file"] {
+      .card.info   { background: #f0f6ff; border-left: 3px solid #0078d4; color: #0f5fa8; }
+      .card.success{ background: #f0faf2; border-left: 3px solid #22a84a; color: #1a7a37; }
+      .card.warn   { background: #fff8f0; border-left: 3px solid #f5a623; color: #b47217; }
+      .card.error  { background: #fff0f0; border-left: 3px solid #e53935; color: #b71c1c; }
+
+      /* ── Page status ── */
+      #currentPageStatus {
+        font-size: 0.88rem;
+        border-radius: 8px;
+        padding: 8px 12px;
         display: none;
       }
-      .import-label, button {
-        background: #2d8cf0;
+      #currentPageStatus.downloaded {
+        background: #fff3cd;
+        border-left: 3px solid #f5a623;
+        color: #7a5000;
+      }
+      #currentPageStatus.not-downloaded {
+        background: #f0faf2;
+        border-left: 3px solid #22a84a;
+        color: #1a7a37;
+      }
+      #currentPageStatus.na {
+        background: #f5f5f5;
+        border-left: 3px solid #bbb;
+        color: #666;
+      }
+      .offsets-line {
+        font-size: 0.78rem;
+        margin-top: 4px;
+        opacity: 0.85;
+      }
+
+      /* ── Storage bar ── */
+      .storage-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.80rem;
+        color: #555;
+      }
+      .storage-bar-bg {
+        flex: 1;
+        height: 6px;
+        background: #e0e0e0;
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .storage-bar-fill {
+        height: 100%;
+        border-radius: 3px;
+        background: #0078d4;
+        transition: width 0.4s ease;
+        width: 0%;
+      }
+      .storage-label { white-space: nowrap; min-width: 60px; text-align: right; }
+
+      /* ── Buttons ── */
+      .button-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      input[type="file"] { display: none; }
+
+      .btn, .import-label {
+        flex: 1;
+        min-width: 0;
+        background: #0078d4;
         color: #fff;
         border: none;
         border-radius: 6px;
-        padding: 0.5rem 1.2rem;
-        font-size: 1rem;
+        padding: 7px 10px;
+        font-size: 0.88rem;
         cursor: pointer;
-        transition: background 0.2s;
+        text-align: center;
+        transition: background 0.15s, opacity 0.15s;
         display: inline-block;
+        white-space: nowrap;
       }
-      .import-label:hover, button:hover {
-        background: #1766b8;
+      .btn:hover, .import-label:hover { background: #005fa3; }
+      .btn:active, .import-label:active { opacity: 0.85; }
+
+      .btn.secondary {
+        background: #f0f2f5;
+        color: #333;
+        border: 1px solid #d0d0d0;
+      }
+      .btn.secondary:hover { background: #e2e5ea; }
+
+      .btn.danger {
+        background: #fff0f0;
+        color: #c62828;
+        border: 1px solid #f5b5b5;
+      }
+      .btn.danger:hover { background: #fcd6d6; }
+
+      /* ── Confirm modal ── */
+      #confirmOverlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.45);
+        z-index: 100;
+        align-items: center;
+        justify-content: center;
+      }
+      #confirmOverlay.show { display: flex; }
+      .confirm-box {
+        background: #fff;
+        border-radius: 10px;
+        padding: 20px 22px;
+        max-width: 280px;
+        width: 90%;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+        text-align: center;
+      }
+      .confirm-box p {
+        margin: 0 0 16px;
+        font-size: 0.92rem;
+        color: #333;
+        line-height: 1.5;
+      }
+      .confirm-actions { display: flex; gap: 10px; justify-content: center; }
+      .confirm-actions .btn { flex: none; padding: 7px 24px; }
+
+      /* ── Progress bar ── */
+      #progressWrap {
+        display: none;
+        background: #f0f6ff;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 0.82rem;
+        color: #0f5fa8;
+      }
+      #progressWrap.show { display: block; }
+      .progress-bar-bg {
+        height: 5px;
+        background: #cce0f5;
+        border-radius: 3px;
+        overflow: hidden;
+        margin-top: 6px;
+      }
+      .progress-bar-fill {
+        height: 100%;
+        background: #0078d4;
+        border-radius: 3px;
+        transition: width 0.1s linear;
+        width: 0%;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1>Pixiv Prevent Duplicate</h1>
-      <p>This Chrome extension prevents downloading duplicate images from Pixiv.</p>
-      <div id="status"></div>
-      <div id="importStatus"></div>
+      <div>
+        <h1>Pixiv Prevent Duplicate</h1>
+        <p class="subtitle">Tracks downloaded Pixiv artwork IDs to prevent re-downloads.</p>
+      </div>
+
+      <!-- General status (entry count, import result) -->
+      <div id="status" class="card info"></div>
+
+      <!-- Import progress bar -->
+      <div id="progressWrap">
+        <span id="progressLabel">Processing…</span>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progressBar"></div>
+        </div>
+      </div>
+
+      <!-- Import feedback -->
+      <div id="importStatus" class="card info"></div>
+
+      <!-- Current page download status -->
       <div id="currentPageStatus"></div>
+
+      <!-- Storage usage bar -->
+      <div class="storage-row">
+        <span>Storage</span>
+        <div class="storage-bar-bg">
+          <div class="storage-bar-fill" id="storageBarFill"></div>
+        </div>
+        <span class="storage-label" id="storageLabel">…</span>
+      </div>
+
+      <!-- Action buttons row 1 -->
       <div class="button-row">
         <label for="csvUpload" class="import-label">
           Import CSV
           <input type="file" id="csvUpload" accept=".csv">
         </label>
-        <button id="resetBtn">Reset</button>
+        <button id="exportBtn" class="btn secondary">Export CSV</button>
+      </div>
+
+      <!-- Action buttons row 2 -->
+      <div class="button-row">
+        <button id="rescanBtn" class="btn secondary">Re-scan Page</button>
+        <button id="resetBtn" class="btn danger">Reset</button>
       </div>
     </div>
+
+    <!-- Confirm dialog -->
+    <div id="confirmOverlay">
+      <div class="confirm-box">
+        <p>Reset all saved data?<br><strong>This cannot be undone.</strong></p>
+        <div class="confirm-actions">
+          <button id="confirmYes" class="btn danger">Reset</button>
+          <button id="confirmNo" class="btn secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <script src="../utils/performance.js"></script>
     <script src="../utils/storage.js"></script>
     <script src="main.js"></script>

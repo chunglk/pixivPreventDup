@@ -1,150 +1,122 @@
 console.log('Popup script loaded.');
-document.getElementById('status').textContent = 'Extension is active.';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function setStatus(text, type = 'info') {
+    const el = document.getElementById('status');
+    el.textContent = text;
+    el.className = `card ${type}`;
+    el.style.display = text ? '' : 'none';
+}
+
+function setImportStatus(text, type = 'info') {
+    const el = document.getElementById('importStatus');
+    el.textContent = text;
+    el.className = `card ${type}`;
+    el.style.display = text ? '' : 'none';
+}
 
 async function getJsonDataLength() {
-    let count = 0;
     const result = await chrome.storage.local.get(['jsonData']);
     const jsonData = result.jsonData || {};
+    let count = 0;
     for (const key in jsonData) {
         if (jsonData.hasOwnProperty(key)) {
-                count += Object.keys(jsonData[key]).length;
+            count += Object.keys(jsonData[key]).length;
         }
     }
-    console.log('Total entries in JSON:', count);
     return count;
 }
 
-function getFirst10Entries() {
-    chrome.storage.local.get(['jsonData'], function(result) {
-        const jsonData = result.jsonData || {};
-        const entries = [];
-        for (const key in jsonData) {
-            if (jsonData.hasOwnProperty(key)) {
-                for (const subKey in jsonData[key]) {
-                    if (jsonData[key].hasOwnProperty(subKey)) {
-                        entries.push({
-                            key: key,
-                            subKey: subKey,
-                            value: jsonData[key][subKey]
-                        });
-                        if (entries.length >= 10) {
-                            break;
-                        }
-                    }
-                }
-            }
-            if (entries.length >= 10) {
-                break;
-            }
-        }
-        console.log('First 10 entries:', entries);
-        document.getElementById('importStatus').textContent += ` First 10 entries: ${JSON.stringify(entries)}`;
+// ── Storage usage bar ─────────────────────────────────────────────────────────
+// Chrome local storage soft quota is 10 MB (10 485 760 bytes)
+const STORAGE_QUOTA = 10 * 1024 * 1024;
+
+function formatBytes(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function refreshStorageBar() {
+    chrome.storage.local.getBytesInUse(null, function(bytes) {
+        const pct = Math.min(100, (bytes / STORAGE_QUOTA) * 100).toFixed(1);
+        const fill = document.getElementById('storageBarFill');
+        fill.style.width = `${pct}%`;
+        fill.style.background = pct > 80 ? '#e53935' : pct > 60 ? '#f5a623' : '#0078d4';
+        document.getElementById('storageLabel').textContent = `${formatBytes(bytes)} (${pct}%)`;
     });
 }
 
-function showIsCurrentPageDownloaded(){
+// ── Current page status ───────────────────────────────────────────────────────
+
+function showIsCurrentPageDownloaded() {
     chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+        const el = document.getElementById('currentPageStatus');
+        el.innerHTML = '';
+
         if (!tabs[0] || !tabs[0].url || !tabs[0].url.startsWith('https://www.pixiv.net/artworks/')) {
-            document.getElementById('currentPageStatus').textContent = 'Not a Pixiv artwork page.';
+            el.className = 'na';
+            el.textContent = 'Not a Pixiv artwork page.';
+            el.style.display = '';
             return;
         }
-        const currentTab = tabs[0];
-        if (currentTab) {
-            const currentUrl = currentTab.url;
-            key = Math.floor(parseInt(currentUrl.split('/').pop(), 10) / 10000000);
-            value = parseInt(currentUrl.split('/').pop(), 10) % 10000000; // Get the last 7 digits
 
-            chrome.storage.local.get(['jsonData'], function(result) {
-                let jsonData = result.jsonData || {};
-                if (jsonData[key] && jsonData[key][value] && jsonData[key][value]['downloaded']) {
-                    console.log('Current page is downloaded:', currentUrl);
-                    document.getElementById('currentPageStatus').textContent = 'This page is already downloaded.';
-                    console.log('Offsets:', jsonData[key][value]['offset']);
-                    // Optionally, you can display the offsets in the popup
-                    const offsetsDiv = document.createElement('div');
-                    offsetsDiv.textContent = 'Offsets: ' + (jsonData[key][value]['offset'] || []).join(', ');
-                    offsetsDiv.style.fontWeight = 'bold';
-                    offsetsDiv.style.fontSize = '12px';
-                    offsetsDiv.style.borderRadius = '4px';
-                    offsetsDiv.style.padding = '2px 8px';
-                    offsetsDiv.style.marginTop = '4px';
-                    document.getElementById('currentPageStatus').appendChild(offsetsDiv);
-                } else {
-                    console.log('Current page is not downloaded:', currentUrl);
-                    document.getElementById('currentPageStatus').textContent = 'This page is not downloaded yet.';
+        const currentUrl = tabs[0].url;
+        const artworkId = parseInt(currentUrl.split('/').pop(), 10);
+        const key = Math.floor(artworkId / 10000000);
+        const value = artworkId % 10000000;
+
+        chrome.storage.local.get(['jsonData'], function(result) {
+            const jsonData = result.jsonData || {};
+            if (jsonData[key] && jsonData[key][value] && jsonData[key][value]['downloaded']) {
+                el.className = 'downloaded';
+                el.textContent = '⚠ Already downloaded';
+                const offsets = (jsonData[key][value]['offset'] || [])
+                    .filter(o => o !== -1 && o !== '-1');
+                if (offsets.length > 0) {
+                    const d = document.createElement('div');
+                    d.className = 'offsets-line';
+                    d.textContent = 'Offsets: ' + offsets.join(', ');
+                    el.appendChild(d);
                 }
-            });
-        }
-    });
-}
-
-function toggleVisibility(id) {
-          const el = document.getElementById(id);
-          el.style.display = el.textContent.trim() ? '' : 'none';
-        }
-['status', 'importStatus', 'currentPageStatus'].forEach(id => {
-    const el = document.getElementById(id);
-    const observer = new MutationObserver(() => toggleVisibility(id));
-    observer.observe(el, { childList: true, subtree: true, characterData: true });
-    toggleVisibility(id);
-});
-
-// Optimized single value addition with deduplication
-function addToJson(inputValue){
-    chrome.storage.local.get(['jsonData'], function(result) {
-        let offset;
-        let value;
-        if(inputValue.split('_').length > 1){
-            offset = inputValue.split('_')[1];
-            value = inputValue.split('_')[0];
-        }else{
-            offset = -1;
-            value = inputValue;
-        }
-        value = parseInt(value, 10);
-        let jsonData = result.jsonData || {};
-
-        let key = Math.floor(value / Math.pow(10, 7));
-        let subValue = value % Math.pow(10, 7);
-
-        // Initialize nested structure if needed
-        if (!jsonData[key]) {
-            jsonData[key] = {};
-        }
-
-        if(!jsonData[key][subValue]){
-            jsonData[key][subValue] = {
-                offset: [],
-                downloaded: false
-            };
-        }
-        
-        jsonData[key][subValue]['downloaded'] = true;
-        
-        // Prevent duplicate offsets
-        if (!jsonData[key][subValue]['offset'].includes(offset)) {
-            jsonData[key][subValue]['offset'].push(offset);
-        }
-
-        // Save the updated JSON data back to local storage
-        chrome.storage.local.set({jsonData: jsonData}, function() {
-            console.log('Value added to JSON:', subValue);
+            } else {
+                el.className = 'not-downloaded';
+                el.textContent = '✓ Not yet downloaded';
+            }
+            el.style.display = '';
         });
     });
 }
 
-// Optimized batch processing function - same as background.js for consistency
+// ── Import CSV ────────────────────────────────────────────────────────────────
+
 function addListOfValuesToJson(values) {
-    // Single storage read operation
+    const progressWrap = document.getElementById('progressWrap');
+    const progressBar  = document.getElementById('progressBar');
+    const progressLabel = document.getElementById('progressLabel');
+
+    progressWrap.classList.add('show');
+    progressBar.style.width = '0%';
+
     chrome.storage.local.get(['jsonData'], function(result) {
         let jsonData = result.jsonData || {};
+        const offsetSets = {};
+
+        // Seed sets from existing data
+        for (const k in jsonData) {
+            for (const sv in jsonData[k]) {
+                const existing = jsonData[k][sv].offset;
+                if (Array.isArray(existing)) {
+                    offsetSets[`${k}/${sv}`] = new Set(existing);
+                }
+            }
+        }
+
         let processed = 0;
-        
-        // Process all values in memory first
         values.forEach(value => {
-            let offset;
-            let parsedValue;
-            if(value.split('_').length > 1){
+            let offset, parsedValue;
+            if (value.split('_').length > 1) {
                 offset = value.split('_')[1];
                 parsedValue = value.split('_')[0];
             } else {
@@ -152,71 +124,129 @@ function addListOfValuesToJson(values) {
                 parsedValue = value;
             }
             parsedValue = parseInt(parsedValue, 10);
-            
-            let key = Math.floor(parsedValue / Math.pow(10, 7));
-            let subValue = parsedValue % Math.pow(10, 7);
+            const key = Math.floor(parsedValue / Math.pow(10, 7));
+            const subValue = parsedValue % Math.pow(10, 7);
+            const setKey = `${key}/${subValue}`;
 
-            // Initialize nested structure if needed
-            if (!jsonData[key]) {
-                jsonData[key] = {};
+            if (!jsonData[key]) jsonData[key] = {};
+            if (!jsonData[key][subValue]) {
+                jsonData[key][subValue] = { offset: [], downloaded: false };
             }
-            if(!jsonData[key][subValue]){
-                jsonData[key][subValue] = {
-                    offset: [],
-                    downloaded: false
-                };
-            }
-            
             jsonData[key][subValue]['downloaded'] = true;
-            if (!jsonData[key][subValue]['offset'].includes(offset)) {
-                jsonData[key][subValue]['offset'].push(offset);
+
+            if (!offsetSets[setKey]) {
+                offsetSets[setKey] = new Set(jsonData[key][subValue].offset);
             }
-            
+            offsetSets[setKey].add(offset);
+
             processed++;
-            // Update progress less frequently for better performance
-            if (processed % 100 === 0 || processed === values.length) {
-                document.getElementById('status').textContent = `Processing ${processed} of ${values.length}...`;
+            if (processed % 200 === 0 || processed === values.length) {
+                const pct = Math.round((processed / values.length) * 100);
+                progressBar.style.width = `${pct}%`;
+                progressLabel.textContent = `Processing ${processed} / ${values.length}…`;
             }
         });
 
-        // Single storage write operation
+        // Write sets back to arrays
+        for (const setKey in offsetSets) {
+            const [k, sv] = setKey.split('/');
+            if (jsonData[k] && jsonData[k][sv]) {
+                jsonData[k][sv].offset = Array.from(offsetSets[setKey]);
+            }
+        }
+
         chrome.storage.local.set({jsonData: jsonData}, function() {
-            console.log('Batch values added to JSON:', values.length, 'items');
-            document.getElementById('status').textContent = `Successfully imported ${values.length} items!`;
+            progressWrap.classList.remove('show');
+            setImportStatus(`Imported ${values.length} items successfully.`, 'success');
+            refreshEntryCount();
+            refreshStorageBar();
         });
     });
 }
 
+// ── Export CSV ────────────────────────────────────────────────────────────────
 
-getJsonDataLength().then(length => {
-    document.getElementById('status').textContent += ` Total entries in JSON: ${length}`;
+document.getElementById('exportBtn').addEventListener('click', function() {
+    chrome.runtime.sendMessage({action: 'exportCsv'}, function(response) {
+        if (!response || !response.success) {
+            setImportStatus('Export failed.', 'error');
+            return;
+        }
+        const blob = new Blob([response.csv], {type: 'text/csv'});
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `pixiv_downloads_${new Date().toISOString().slice(0,10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setImportStatus('Export complete.', 'success');
+    });
 });
+
+// ── Re-scan page ──────────────────────────────────────────────────────────────
+
+document.getElementById('rescanBtn').addEventListener('click', function() {
+    const btn = this;
+    btn.textContent = 'Scanning…';
+    btn.disabled = true;
+    chrome.runtime.sendMessage({action: 'rescanPage'}, function() {
+        btn.textContent = 'Re-scan Page';
+        btn.disabled = false;
+        setImportStatus('Page re-scan triggered.', 'info');
+    });
+});
+
+// ── Reset with confirmation ───────────────────────────────────────────────────
+
+document.getElementById('resetBtn').addEventListener('click', function() {
+    document.getElementById('confirmOverlay').classList.add('show');
+});
+
+document.getElementById('confirmNo').addEventListener('click', function() {
+    document.getElementById('confirmOverlay').classList.remove('show');
+});
+
+document.getElementById('confirmYes').addEventListener('click', function() {
+    document.getElementById('confirmOverlay').classList.remove('show');
+    chrome.storage.local.clear(function() {
+        setStatus('All data has been reset.', 'warn');
+        setImportStatus('', '');
+        document.getElementById('currentPageStatus').style.display = 'none';
+        refreshStorageBar();
+    });
+});
+
+// ── CSV upload ────────────────────────────────────────────────────────────────
 
 document.getElementById('csvUpload').addEventListener('change', function(event) {
     const file = event.target.files[0];
     if (!file) return;
+    this.value = ''; // allow re-importing the same file
 
     const reader = new FileReader();
     reader.onload = function(e) {
-        const csvText = e.target.result;
-        const values = csvText.split('\n').map(line => line.trim()).filter(line => line);
+        const values = e.target.result.split('\n').map(l => l.trim()).filter(l => l);
         addListOfValuesToJson(values);
-        // document.getElementById('status').textContent = 'CSV data imported successfully.';
     };
     reader.readAsText(file);
 });
 
-document.getElementById('resetBtn').addEventListener('click', function() {
-    chrome.storage.local.clear(function() {
-        console.log('Local storage cleared.');
-        document.getElementById('status').textContent = 'Local storage cleared.';
-    });
-});
+// ── Tab changed message ───────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-    console.log('Received message in popup:', request);
+chrome.runtime.onMessage.addListener(function(request) {
     if (request.action === 'tab_changed') {
         showIsCurrentPageDownloaded();
     }
 });
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+function refreshEntryCount() {
+    getJsonDataLength().then(length => {
+        setStatus(`Active — ${length.toLocaleString()} entries tracked`, 'info');
+    });
+}
+
+refreshEntryCount();
+refreshStorageBar();
 showIsCurrentPageDownloaded();

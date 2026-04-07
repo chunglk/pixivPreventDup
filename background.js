@@ -94,16 +94,16 @@ const pendingDownloads = {};
 // consumed by onDeterminingFilename which fires before the download callback
 const pendingDownloadFilenames = [];
 
-chrome.contextMenus.create({
-            id: "processImage",
-            title: "Save and Process Image",
-            contexts: ["image"],
-            documentUrlPatterns: ["*://*.pixiv.net/*"]
-        }, () => {
-            if (chrome.runtime.lastError && chrome.runtime.lastError.message.includes('already exists')) {
-                // Ignore duplicate creation error
-            }
-        });
+// chrome.contextMenus.create({
+//             id: "processImage",
+//             title: "Save and Process Image",
+//             contexts: ["image"],
+//             documentUrlPatterns: ["*://*.pixiv.net/*"]
+//         }, () => {
+//             if (chrome.runtime.lastError && chrome.runtime.lastError.message.includes('already exists')) {
+//                 // Ignore duplicate creation error
+//             }
+//         });
 
 async function getJsonDataLength() {
     const result = await chrome.storage.local.get(['jsonData']);

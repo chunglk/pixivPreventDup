@@ -206,6 +206,12 @@ chrome.runtime.onMessage.addListener(function(request, _sender, sendResponse) {
         const sourceUrl = blobUrlToSourceUrl[request.srcUrl];
         let filename = sourceUrl ? sourceUrl.split('/').pop() : null;
 
+        // Pixiv CDN URLs embed an MD5 hash: "139247389-20b7fdbb2cfe102931d00ef73bbd16e6_p0.png"
+        // Strip the "-{32hexchars}" segment to get the clean "139247389_p0.png" form.
+        if (filename) {
+            filename = filename.replace(/-[0-9a-f]{32}(?=_)/i, '');
+        }
+
         // DOM-based fallback for blob: URLs the tracker didn't catch (race condition on first load).
         // Only applies on artwork detail pages where we know the artwork ID from the URL.
         if (!filename && request.srcUrl.startsWith('blob:')) {
